@@ -100,6 +100,7 @@ data class Ui(
     val log: List<LogEntry> = emptyList(),
     val banner: String? = null,
     val onlyOurs: Boolean = false,
+    val showAll: Boolean = false, // the Wi-Fi list is cut to SHOWN_AT_FIRST until this is set
 ) {
     private fun labelled(serial: String) = classes[serial]
     private fun named(serial: String, fallback: String) = classes[serial]?.name?.ifEmpty { null } ?: fallback
@@ -144,6 +145,9 @@ data class Ui(
 }
 
 private const val TAG = "AioPair"
+
+/** How many of the devices on the Wi-Fi to show before "Show more". */
+const val SHOWN_AT_FIRST = 5
 
 /** How long a device that refused the fleet key is left alone before trying it again. */
 private const val RETRY_MS = 60_000L
@@ -204,6 +208,8 @@ class EnrollVm(private val app: App) : AndroidViewModel(app) {
     }
 
     fun clearSignInError() = _ui.update { it.copy(signInError = null) }
+
+    fun showAll() = _ui.update { it.copy(showAll = true) }
 
     private fun afterSignIn(sess: Session) {
         val a = MdmApi(sess)

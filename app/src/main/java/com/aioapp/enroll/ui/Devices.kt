@@ -67,8 +67,16 @@ fun DevicesScreen(u: Ui, vm: EnrollVm) {
             }
         }
         item("nl") { NearbyLabel(u, vm) }
-        items(u.nearby, key = { it.key }) { r ->
+        val shown = if (u.showAll) u.nearby else u.nearby.take(SHOWN_AT_FIRST)
+        items(shown, key = { it.key }) { r ->
             DeviceRow(r, u, vm, action = "Pair", onAction = { vm.pair(r) }, onClick = { vm.say(classWhy(r.cls)) })
+        }
+        if (shown.size < u.nearby.size) {
+            item("more") {
+                TextButton({ vm.showAll() }, Modifier.padding(start = 2.dp, top = 2.dp)) {
+                    Text("Show ${u.nearby.size - shown.size} more")
+                }
+            }
         }
         if (u.nearby.isEmpty() && u.nearbyTotal > 0) {
             item("none") { Hint("None of these are ours.") }
