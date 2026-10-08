@@ -119,8 +119,9 @@ class MdmApi(val session: Session) {
             setRequestProperty("Authorization", "Bearer ${session.token}")
             connectTimeout = 8000; readTimeout = 15000
         }
+        android.util.Log.i("AioMdm", "avatar -> ${c.responseCode} ${c.contentType}")
         if (c.responseCode != 200) null else c.inputStream.use { it.readBytes() }
-    }.getOrNull()
+    }.onFailure { android.util.Log.w("AioMdm", "avatar: $it") }.getOrNull()
 
     fun statuses(serials: List<String>): Map<String, Status> {
         if (serials.isEmpty()) return emptyMap()

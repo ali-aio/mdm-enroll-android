@@ -221,8 +221,12 @@ class EnrollVm(private val app: App) : AndroidViewModel(app) {
             _ui.update { it.copy(profile = p.name.ifEmpty { sess.username }, accounts = store.accounts()) }
             if (store.fleetKeyPem == null || store.fleetKeyVersion != p.adbKeyVersion) fetchFleetKey(a)
             else _ui.update { it.copy(fleetKey = true) }
-            io { a.avatar() }?.let { bytes ->
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { bm -> _ui.update { u -> u.copy(avatar = bm) } }
+            val bytes = io { a.avatar() }
+            android.util.Log.i("AioMdm", "avatar bytes=${bytes?.size ?: -1}")
+            bytes?.let {
+                val bm = BitmapFactory.decodeByteArray(it, 0, it.size)
+                android.util.Log.i("AioMdm", "avatar decoded=${bm != null}")
+                bm?.let { b -> _ui.update { u -> u.copy(avatar = b) } }
             }
             io { a.restaurants() }?.let { r -> _ui.update { it.copy(restaurants = r) } }
         }
