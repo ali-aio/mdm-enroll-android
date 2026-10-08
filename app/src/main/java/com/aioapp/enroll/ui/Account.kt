@@ -59,14 +59,16 @@ fun AccountScreen(u: Ui, vm: EnrollVm) {
                 }
             }
         }
-        item("fk") {
-            Text(
-                if (u.fleetKey) "Fleet adb key loaded — AIO firmware connects without a code."
-                else "No fleet adb key on the server yet, so every device needs a pairing code.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
-            )
+        // Nothing to say when it works; only when every device will ask for a code.
+        if (!u.fleetKey) {
+            item("fk") {
+                Text(
+                    "Devices will ask for a pairing code.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
+                )
+            }
         }
         item("rl") { SectionLabel("DEVICES GO TO") }
         items(u.restaurants, key = { it.id }) { r ->
