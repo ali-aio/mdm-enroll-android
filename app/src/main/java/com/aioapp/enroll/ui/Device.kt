@@ -88,21 +88,27 @@ fun DeviceScreen(u: Ui, vm: EnrollVm) {
             if (blocked != null) {
                 Blocked(probe)
             } else {
-                Group {
-                    SectionLabel("USED AS")
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                        CLASSES.forEachIndexed { i, c ->
-                            SegmentedButton(
-                                selected = cls == c,
-                                onClick = { vm.setClass(conn.host, c) },
-                                shape = SegmentedButtonDefaults.itemShape(i, CLASSES.size),
-                                label = { Text(c) },
-                            )
+                // Once it is enrolled the class is what the MDM says it is, not a choice.
+                if (!enrolled) {
+                    Group {
+                        SectionLabel("USED AS")
+                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                            CLASSES.forEachIndexed { i, c ->
+                                SegmentedButton(
+                                    selected = cls == c,
+                                    onClick = { vm.setClass(conn.host, c) },
+                                    shape = SegmentedButtonDefaults.itemShape(i, CLASSES.size),
+                                    label = { Text(c) },
+                                )
+                            }
                         }
                     }
                 }
                 Group {
                     KV("Status", if (enrolled) "Enrolled" else "Not enrolled")
+                    if (enrolled) {
+                        u.classes[probe.serial]?.deviceClass?.takeIf { it.isNotEmpty() }?.let { KV("Used as", it) }
+                    }
                     KV("Goes to", u.site.name.ifEmpty { "Nowhere yet — pick a restaurant" })
                     KV("Enrolled by", u.profile)
                     KV("Connection", "Wi-Fi · ${conn.host}")
