@@ -107,12 +107,15 @@ fun DeviceScreen(u: Ui, vm: EnrollVm) {
                     KV("Enrolled by", u.profile)
                     KV("Connection", "Wi-Fi · ${conn.host}")
                 }
-                Button(
-                    onClick = { vm.enrol(conn.host) },
-                    enabled = cls in CLASSES,
-                    modifier = Modifier.fillMaxWidth().height(50.dp).padding(top = 4.dp),
-                ) { Text(if (enrolled) "Enrol again" else "Enrol") }
-                if (cls !in CLASSES) Hint("Pick what this device is used as first.")
+                // Nothing to offer on a device that is already enrolled.
+                if (!enrolled) {
+                    Button(
+                        onClick = { vm.enrol(conn.host) },
+                        enabled = cls in CLASSES,
+                        modifier = Modifier.fillMaxWidth().height(50.dp).padding(top = 4.dp),
+                    ) { Text("Enrol") }
+                    if (cls !in CLASSES) Hint("Pick what this device is used as first.")
+                }
             }
 
             if (enrolled && status != null) {
