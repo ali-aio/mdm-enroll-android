@@ -39,8 +39,9 @@ The screens are written too (`ui/`), and the app builds:
 | `ui/SignIn.kt`, `ui/Devices.kt`, `ui/Device.kt`, `ui/Today.kt`, `ui/Account.kt` | The screens from section 4. |
 | `ui/Theme.kt`, `ui/Bits.kt` | The Material 3 scheme (option A's colours) and the shared pieces: class labels, chips, glyphs, `agoShort`. |
 
-**Not done:** it has never run on a phone. `assembleDebug` succeeds; nothing below section 7 has
-been tried against a real device.
+**It runs.** On the Pixel 6, against stage: sign-in, discovery (10 devices found on the Wi-Fi),
+the no-code connect to an AIO T7 in ~100 ms, a full probe, and an enrolment that completed
+(AT070AA2600030 is enrolled as kds). Pairing with a 6-digit code is the one path still untried.
 
 ---
 
@@ -48,9 +49,24 @@ been tried against a real device.
 
 ```
 cd ~/aio-mdm/mdm-enroll-android
-./gradlew assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleStageDebug          # or assembleLiveDebug, or assembleDebug for both
+adb install -r app/build/outputs/apk/stage/debug/app-stage-debug.apk
 ```
+
+### Two flavours
+
+`live` and `stage` differ only in which server they talk to, and they have different
+`applicationId`s so both sit on one phone with their own encrypted stores — a stage session never
+mixes with a live one.
+
+| | live | stage |
+|---|---|---|
+| server (`BuildConfig.SERVER`) | `https://mdm.dev.aioapp.com` | `https://mdm-stage.dev.aioapp.com` |
+| applicationId | `com.aioapp.enroll` | `com.aioapp.enroll.stage` |
+| label | AIO Enroll | AIO Enroll (stage) |
+
+The FileProvider authority is `${applicationId}.files`; hardcoding it makes the second flavour
+refuse to install (`INSTALL_FAILED_CONFLICTING_PROVIDER`).
 
 Needs JDK 17 and Android SDK 35. The test phone is the Pixel 6 (`18121FDF60022T`) on `arch-btw`;
 `arch-btw` has no SDK, so build here and install over the network, or copy the APK across.
@@ -84,6 +100,22 @@ Everything except the screens is blocking I/O. Run it on `Dispatchers.IO` inside
 | `_adb-tls-connect._tcp` | `connect` | Wireless debugging is on. Connects with a key it already trusts. |
 | `_adb._tcp` (usually :5555) | `connect` | Plain adb: AIO firmware with the fleet key built in, or after `adb tcpip`. |
 
+### Zero-touch: every address, tried on :5555
+
+This is the point of the app. Devices we don't build ourselves come from other vendors, and we ask
+them for one change to their image: **our adb key in it, and 5555 always open**. Then no pairing
+code is ever needed.
+
+So `autoConnect` in `ui/State.kt` tries the fleet key on :5555 against **every address discovery
+reports**, four at a time. Whatever opens is one of ours by definition, gets probed, and lands
+under **Ready to enrol** with an Enrol button. Whatever refuses (`AdbAuthenticationFailedException`)
+or has the port shut is left alone for a minute and keeps its Pair button. Nothing in that path
+looks for AIO firmware, which is what makes it work for a vendor's device as well as a T7.
+
+The sections on the Devices screen are, in order: pairing requests, **Ready to enrol** (opened on
+their own, not enrolled yet), **Enrolled**, **Connected** (paired by hand with a code), and
+everything else on the Wi-Fi.
+
 ### Connect before asking for a code
 
 This is the behaviour the user asked for, and the desktop app does it in `openPairFor` in
@@ -115,8 +147,8 @@ in the APK.
 - **Delete the key on sign-out.** `Store.fleetKeyPem = null`.
 - A `404` means no key is uploaded on the server. Carry on without it: pairing codes still work.
 
-An admin uploads the key under Settings → Enrollment on the dashboard. As of now none is
-uploaded, so test with pairing codes until one is.
+An admin uploads the key under Settings → Enrollment on the dashboard. It is uploaded on both
+live and stage.
 
 ---
 
@@ -226,7 +258,12 @@ amber instead of "Enrolled". Get `last_seen_at` from `MdmApi.statuses` for fleet
 
 ## 7. Testing
 
-- **The Pixel 6** on `arch-btw` is the phone to install on.
+- **The Pixel 6** on `arch-btw` is the phone to install on. SSH to that host is refused by the
+  tailnet policy, so run `adb kill-server; adb -a -P 5037 nodaemon server` there and drive it from
+  here with `export ADB_SERVER_SOCKET=tcp:100.126.94.48:5037` — install, logcat and screencap all
+  work over that.
+- **Logging.** `AioDiscovery` for what is on the Wi-Fi, `AioPair` for connect and auto-connect
+  decisions, `AioAdb` for every shell command with its size and timing.
 - **An AIO T7** is at `10.32.2.75:5555` — the no-code connect path. The fleet key **is**
   uploaded now, so this is testable: sign in, and the T7 should connect with no code at all.
 - **Against the real MDM**: live is `https://mdm.dev.aioapp.com` and all the endpoints are
@@ -241,8 +278,15 @@ amber instead of "Enrolled". Get `last_seen_at` from `MdmApi.statuses` for fleet
 - **It has not run on a phone.** The build is green and the screens are written, but no screen
   has been seen on a device: no sign-in, no pairing, no enrolment has been exercised. That is
   the next thing to do, and the Pixel 6 on `arch-btw` is where.
-- **No repo.** This folder is a local git repo with no commits and no remote. It builds now, so
-  create one (`ali-aio/…`) and make the first commit.
+- **No remote.** The repo has commits now but no remote; create one (`ali-aio/…`) and push.
+- **One adb stream in six stalls for 20 s.** A stream carries all its output and then never reports
+  EOF, so `AdbLink.readAll` has a watchdog that closes it at 20 s — the data is fine, the time is
+  not. `Probe.read` sidesteps it by doing everything in **one** shell call (604 ms, where eleven
+  separate calls took around a minute and blew past the probe timeout). `Enroller` still makes
+  many separate calls and will feel slow until it does the same. The cause is somewhere in
+  libadb's stream handling and is not understood yet.
+- **Discovery keeps junk entries.** Some devices resolve to `null:5555` (two emulators did) and are
+  still counted in "found", though they are dropped from the list.
 - **Not 16 KB page-size compatible.** On the Pixel 6 the debug build raises Android's
   "App Compatibility" dialog: `libandroidx.graphics.path.so`, `libspake2.so` (libadb's pairing
   code) and `libconscrypt_jni.so` are not 16 KB aligned. It is only a warning for a debuggable
