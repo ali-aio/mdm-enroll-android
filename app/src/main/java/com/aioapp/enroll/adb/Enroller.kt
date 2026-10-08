@@ -1,0 +1,75 @@
+package com.aioapp.enroll.adb
+
+import com.aioapp.enroll.mdm.MdmApi
+import java.io.File
+
+val STEPS = listOf(
+    "Checking the device", "Getting a token", "Installing the agent", "Setting Device Owner",
+    "Granting permissions", "Starting the agent", "Registering with the MDM", "First check-in",
+)
+val CLASSES = listOf("dongle", "pos", "kds", "kiosk")
+
+data class Outcome(val live: Boolean, val checked: Boolean, val serial: String, val restaurant: String, val batteryPct: Int, val hasBattery: Boolean, val agentVersion: String)
+
+/**
+ * Enrols one device over its adb link: the same steps as the desktop app and tools/enroll-adb.sh.
+ * [progress] is called as each step in [STEPS] starts. Throws with a message for the person.
+ */
+fun enrollDevice(link: AdbLink, api: MdmApi, cls: String, restaurantId: String, apkCache: File, progress: (Int) -> Unit): Outcome {
+    require(cls in CLASSES) { "unknown class $cls" }
+    progress(0)
+    val probe = Probe.read(link)
+    probe.blockedReason?.let { throw IllegalStateException("Can’t be enrolled: $it.") }
+
+    progress(1)
+    val tok = api.enrollToken(cls, restaurantId)
+
+    progress(2)
+    apkCache.delete() // never install a stale copy from an earlier version
+    api.downloadApk(apkCache)
+    val inst = link.install(apkCache)
+    if (!inst.contains("Success")) throw IllegalStateException("Install failed: ${inst.trim()}")
+
+    progress(3)
+    if (!probe.owner.ours) {
+        val out = link.shell("dpm set-device-owner $DPC_PKG/$DPC_ADMIN")
+        if (!out.contains("Success")) throw IllegalStateException("set-device-owner failed: ${out.trim()}")
+    }
+
+    progress(4)
+    link.shell("pm grant $DPC_PKG android.permission.READ_LOGS")
+    link.shell("pm grant $DPC_PKG android.permission.WRITE_SECURE_SETTINGS")
+    link.shell("appops set $DPC_PKG GET_USAGE_STATS allow")
+    link.shell("appops set $DPC_PKG PROJECT_MEDIA allow")
+
+    val serial = probe.serial.ifEmpty { link.prop("ro.serialno") }
+    // A re-enrolled device was already checking in: its first check-in must be a newer one.
+    val seenBefore = runCatching { api.statuses(listOf(serial))[serial]?.lastSeenAt }.getOrNull()
+
+    progress(5)
+    link.shell("am start -W -n $DPC_PKG/.ui.MainActivity --es server_url '${tok.serverUrl}' --es enroll_token '${tok.token}'")
+
+    progress(6)
+    var deadline = System.currentTimeMillis() + 30_000
+    var registered = false
+    while (System.currentTimeMillis() < deadline) {
+        if (runCatching { api.statuses(listOf(serial))[serial]?.enrolled }.getOrNull() == true) { registered = true; break }
+        Thread.sleep(1000)
+    }
+    if (!registered) throw IllegalStateException("The server did not confirm within 30 s. Check the device has internet.")
+
+    progress(7)
+    var out = Outcome(false, false, serial, tok.restaurant, 0, false, "")
+    deadline = System.currentTimeMillis() + 60_000
+    while (true) {
+        val s = runCatching { api.statuses(listOf(serial))[serial] }.getOrNull()
+        if (s != null) {
+            out = out.copy(restaurant = s.restaurant.ifEmpty { out.restaurant }, batteryPct = s.batteryPct, hasBattery = s.hasBattery, agentVersion = s.agentVersion)
+            val online = s.online ?: return out // an older server can't tell: don't wait for nothing
+            out = out.copy(checked = true)
+            if (online && s.lastSeenAt != null && s.lastSeenAt != seenBefore) return out.copy(live = true)
+        }
+        if (System.currentTimeMillis() > deadline) return out
+        Thread.sleep(2000)
+    }
+}
