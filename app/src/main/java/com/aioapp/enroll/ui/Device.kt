@@ -109,7 +109,7 @@ fun DeviceScreen(u: Ui, vm: EnrollVm) {
                     if (enrolled) {
                         u.classes[probe.serial]?.deviceClass?.takeIf { it.isNotEmpty() }?.let { KV("Used as", it) }
                     }
-                    KV("Goes to", u.site.name.ifEmpty { "Nowhere yet — pick a restaurant" })
+                    KV("Goes to", u.site.name.ifEmpty { "Onboarding inbox" })
                     KV("Enrolled by", u.profile)
                     KV("Connection", "Wi-Fi · ${conn.host}")
                 }

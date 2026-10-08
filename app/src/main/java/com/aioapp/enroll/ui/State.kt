@@ -573,16 +573,14 @@ class EnrollVm(private val app: App) : AndroidViewModel(app) {
     }
 
     /**
-     * The Enrol button on a ready row. It needs a class and a restaurant; without either there is
-     * nothing to do but open the device and let the person pick.
+     * The Enrol button on a ready row. It needs a class; without one there is nothing to do but
+     * open the device and let the person pick.
      */
     fun enrolFromList(row: Dev) {
         val u = _ui.value
-        when {
-            u.site.id.isEmpty() -> { open(row); say("Pick a restaurant first.") }
-            u.chosen[row.host].orEmpty() !in CLASSES -> { open(row); say("Pick what it is used as.") }
-            else -> { open(row); enrol(row.host) }
-        }
+        // No restaurant is fine: the device lands in the MDM's onboarding inbox.
+        if (u.chosen[row.host].orEmpty() !in CLASSES) { open(row); say("Pick what it is used as.") }
+        else { open(row); enrol(row.host) }
     }
 
     fun enrol(host: String) {

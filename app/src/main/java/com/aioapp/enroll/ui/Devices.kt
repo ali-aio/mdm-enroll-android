@@ -89,7 +89,7 @@ private fun TopRow(u: Ui, vm: EnrollVm) = Row(
             Text(" " + u.site.name, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 130.dp))
         }
     } else {
-        TextButton({ vm.setTab(Tab.ACCOUNT) }) { Text("Pick a restaurant") }
+        TextButton({ vm.setTab(Tab.ACCOUNT) }) { Text("Onboarding inbox") }
     }
     Me(u, vm)
 }
