@@ -201,15 +201,15 @@ private fun HowTo() = Surface(
     shape = RoundedCornerShape(20.dp),
     modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp),
 ) {
-    Column(Modifier.padding(16.dp)) {
-        Text("Add a device", fontWeight = FontWeight.Medium)
+    Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Add a device", fontWeight = FontWeight.Medium, modifier = Modifier.fillMaxWidth())
         Text(
-            "1. Put it on the same Wi-Fi as this phone.\n" +
-                "2. On it: Developer options → Wireless debugging → Pair device with pairing code.",
+            "Put it on this Wi-Fi, then do this on it:",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 12.dp),
         )
+        Guide()
         Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = LocalExtra.current.ok, shape = CircleShape, modifier = Modifier.size(8.dp)) {}
             Text(
