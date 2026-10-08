@@ -57,7 +57,13 @@ fun DevicesScreen(u: Ui, vm: EnrollVm) {
         if (u.enrolled.isNotEmpty()) {
             item("el") { Label("ENROLLED") }
             items(u.enrolled, key = { it.key }) { r ->
-                DeviceRow(r, u, vm, action = "Open", onAction = { vm.open(r) }, onClick = { vm.open(r) })
+                // Only one we hold a connection to can be opened; the rest are just on record.
+                DeviceRow(
+                    r, u, vm,
+                    action = if (r.connected) "Open" else null,
+                    onAction = { vm.open(r) },
+                    onClick = { if (r.connected) vm.open(r) else vm.say(classWhy(r.cls)) },
+                )
             }
         }
         if (u.connected.isNotEmpty()) {

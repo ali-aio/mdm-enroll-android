@@ -118,9 +118,20 @@ data class Ui(
     val ready: List<Dev>
         get() = conns.values.filter { it.ready && !done(it) }.sortedBy { it.name }.map { it.dev() }
 
-    /** Enrolled, however they got connected. */
+    /**
+     * Enrolled: the ones we are connected to that the MDM owns, plus the ones on the Wi-Fi it
+     * already knows, connected or not. Being enrolled is a fact about the device, not about
+     * whether this phone happens to hold a socket to it.
+     */
     val enrolled: List<Dev>
-        get() = conns.values.filter { done(it) }.sortedBy { it.name }.map { it.dev() }
+        get() {
+            val live = conns.values.filter { done(it) }.map { it.dev() }
+            val seen = live.map { it.host }.toSet() + pairing.map { it.host }
+            val known = svcs.filter { it.kind == "connect" && it.host !in seen && classes[it.serial]?.kind == "fleet" }
+                .map { s -> Dev(s.serial.ifEmpty { s.host }, named(s.serial, "Device"), s.host, s.port, s.serial, labelled(s.serial), statuses[s.serial], false) }
+                .distinctBy { it.key }
+            return (live + known).sortedBy { it.name }
+        }
 
     /** Paired by hand with a code, not enrolled yet. */
     val connected: List<Dev>
@@ -131,7 +142,7 @@ data class Ui(
     /** Everything else on the Wi-Fi, ours first once the MDM has told us which are ours. */
     val nearby: List<Dev>
         get() {
-            val busy = conns.keys + pairing.map { it.host }
+            val busy = conns.keys + pairing.map { it.host } + enrolled.map { it.host }
             var list = svcs.filter { it.kind == "connect" && it.host !in busy }
                 .map { s -> Dev(s.serial.ifEmpty { s.host }, named(s.serial, "Device"), s.host, s.port, s.serial, labelled(s.serial), statuses[s.serial], false) }
                 .distinctBy { it.key }
@@ -140,7 +151,8 @@ data class Ui(
             return list
         }
 
-    val nearbyTotal: Int get() = svcs.count { it.kind == "connect" && it.host !in (conns.keys + pairing.map { r -> r.host }) }
+    val nearbyTotal: Int
+        get() = svcs.count { it.kind == "connect" && it.host !in (conns.keys + pairing.map { r -> r.host } + enrolled.map { r -> r.host }) }
     val openConn: Conn? get() = openHost?.let { conns[it] }
 }
 
