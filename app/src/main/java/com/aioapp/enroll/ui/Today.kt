@@ -35,19 +35,17 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** What this phone enrolled today, and whether each one is online now. */
+/** What this phone set up today, and whether each one is online now. Enrolled devices live here, not on home. */
 @Composable
 fun TodayScreen(u: Ui, vm: EnrollVm) {
     val ctx = LocalContext.current
     val today = u.log.filter { sameDay(it.t) }
     LazyColumn(Modifier.fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
-        item("t") {
-            Text("Today", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp))
-        }
+        item("t") { BackTitle("Set up today", { vm.setTab(Tab.HOME) }) }
         if (today.isEmpty()) {
             item("none") {
                 Text(
-                    "Nothing enrolled from this phone today.",
+                    "Nothing set up from this phone today.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 6.dp, top = 12.dp),
@@ -93,7 +91,7 @@ private fun Entry(e: LogEntry, u: Ui) = Surface(
     }
 }
 
-private fun sameDay(t: Long): Boolean {
+fun sameDay(t: Long): Boolean {
     val f = SimpleDateFormat("yyyyMMdd", Locale.US)
     return f.format(Date(t)) == f.format(Date())
 }

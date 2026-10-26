@@ -16,7 +16,7 @@ class App : Application() {
             ?: AdbIdentity.generate().also { store.ownKey = it.pkcs8Base64() }
     }
 
-    /** The fleet key, when the server has given us one. AIO firmware trusts it, so no code is needed. */
-    val fleetIdentity: AdbIdentity?
-        get() = store.fleetKeyPem?.let { runCatching { AdbIdentity.fromPem("fleet", it) }.getOrNull() }
+    /** The fleet keys the server has given us, one per vendor. AIO firmware trusts one of them, so no code is needed. */
+    val fleetIdentities: List<AdbIdentity>
+        get() = store.fleetKeys.mapNotNull { (label, pem) -> runCatching { AdbIdentity.fromPem(label, pem) }.getOrNull() }
 }

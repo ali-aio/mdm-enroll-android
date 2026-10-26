@@ -7,22 +7,22 @@ val STEPS = listOf(
     "Checking the device", "Getting a token", "Installing the agent", "Setting Device Owner",
     "Granting permissions", "Starting the agent", "Registering with the MDM", "First check-in",
 )
-val CLASSES = listOf("dongle", "pos", "kds", "kiosk")
 
 data class Outcome(val live: Boolean, val checked: Boolean, val serial: String, val restaurant: String, val batteryPct: Int, val hasBattery: Boolean, val agentVersion: String)
 
 /**
  * Enrols one device over its adb link: the same steps as the desktop app and tools/enroll-adb.sh.
+ * What it is and where it goes are decided on the MDM (its type follows its model; it lands in the
+ * onboarding inbox), so nothing is asked here.
  * [progress] is called as each step in [STEPS] starts. Throws with a message for the person.
  */
-fun enrollDevice(link: AdbLink, api: MdmApi, cls: String, restaurantId: String, apkCache: File, progress: (Int) -> Unit): Outcome {
-    require(cls in CLASSES) { "unknown class $cls" }
+fun enrollDevice(link: AdbLink, api: MdmApi, apkCache: File, progress: (Int) -> Unit): Outcome {
     progress(0)
     val probe = Probe.read(link)
     probe.blockedReason?.let { throw IllegalStateException("Can’t be enrolled: $it.") }
 
     progress(1)
-    val tok = api.enrollToken(cls, restaurantId)
+    val tok = api.enrollToken()
 
     progress(2)
     apkCache.delete() // never install a stale copy from an earlier version

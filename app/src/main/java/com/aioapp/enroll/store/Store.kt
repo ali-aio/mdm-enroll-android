@@ -9,13 +9,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class Account(val username: String, val name: String, val saved: Boolean)
-data class Site(val id: String, val name: String)
 data class LogEntry(val t: Long, val name: String, val serial: String, val cls: String, val restaurant: String, val by: String)
 
 /**
  * Everything the app keeps, encrypted with a key held in the Android Keystore: the session, saved
- * accounts and passwords, this phone's own adb key, the fleet adb key, the chosen restaurant and
- * the enrolment log. The fleet key is removed on sign-out.
+ * accounts and passwords, this phone's own adb key, the fleet adb key and the enrolment log. The
+ * fleet key is removed on sign-out.
  */
 class Store(ctx: Context) {
     private val p: SharedPreferences = EncryptedSharedPreferences.create(
@@ -55,9 +54,20 @@ class Store(ctx: Context) {
         get() = p.getString("ownKey", null)
         set(v) = p.edit().putString("ownKey", v).apply()
 
-    var fleetKeyPem: String?
-        get() = p.getString("fleetKey", null)
-        set(v) = p.edit().apply { if (v == null) remove("fleetKey") else putString("fleetKey", v) }.apply()
+    /** The fleet keys as label → PEM, default first. A single key saved by 0.1 reads back as "default". */
+    var fleetKeys: List<Pair<String, String>>
+        get() {
+            p.getString("fleetKeys", null)?.let { s ->
+                val a = runCatching { JSONArray(s) }.getOrNull() ?: return emptyList()
+                return (0 until a.length()).map { a.getJSONObject(it) }.map { it.optString("label") to it.optString("pem") }
+            }
+            return listOfNotNull(p.getString("fleetKey", null)?.let { "default" to it })
+        }
+        set(v) = p.edit().apply {
+            remove("fleetKey")
+            if (v.isEmpty()) remove("fleetKeys")
+            else putString("fleetKeys", JSONArray(v.map { (l, pem) -> JSONObject().put("label", l).put("pem", pem) }).toString())
+        }.apply()
 
     var fleetKeyVersion: Int
         get() = p.getInt("fleetKeyV", 0)
@@ -66,14 +76,6 @@ class Store(ctx: Context) {
     var fleetKeyFingerprint: String
         get() = p.getString("fleetKeyFp", "") ?: ""
         set(v) = p.edit().putString("fleetKeyFp", v).apply()
-
-    // ---- where devices go ----
-    fun site(user: String): Site = runCatching {
-        val o = JSONObject(p.getString("site:$user", null) ?: return Site("", ""))
-        Site(o.optString("id"), o.optString("name"))
-    }.getOrDefault(Site("", ""))
-
-    fun setSite(user: String, s: Site) = p.edit().putString("site:$user", JSONObject().put("id", s.id).put("name", s.name).toString()).apply()
 
     // ---- what was enrolled (kept a week) ----
     fun log(): List<LogEntry> = runCatching {

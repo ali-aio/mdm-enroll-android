@@ -1,5 +1,6 @@
 package com.aioapp.enroll.mdm
 
+import com.aioapp.enroll.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -54,10 +55,10 @@ data class SerialClass(
     val ours get() = kind in setOf("fleet", "production", "family", "lookalike")
 }
 
-data class Restaurant(val id: String, val name: String, val address: String)
 data class Profile(val name: String, val adbKeyVersion: Int)
 data class AgentInfo(val version: String, val versionCode: Long)
-data class FleetKey(val version: Int, val fingerprint: String, val privateKeyPem: String)
+/** One of the adb keys AIO firmware trusts. There is one per vendor; [label] says whose ("default" is the original). */
+data class FleetKey(val label: String, val version: Int, val fingerprint: String, val privateKeyPem: String)
 data class EnrollToken(val token: String, val serverUrl: String, val restaurant: String)
 
 /** The MDM's `/api/v1/app/…` endpoints (the same ones the desktop app uses). Blocking: call off the main thread. */
@@ -75,7 +76,8 @@ class MdmApi(val session: Session) {
                 connectTimeout = 8000
                 readTimeout = timeoutMs
                 setRequestProperty("Accept", "application/json")
-                setRequestProperty("User-Agent", "AIOEnroll-Android/0.1")
+                setRequestProperty("User-Agent", "AIOEnroll-Android/${BuildConfig.VERSION_NAME}")
+                setRequestProperty("X-AIO-App", "AIO Enroll Android ${BuildConfig.VERSION_NAME}")
                 setRequestProperty("X-AIO-Device", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
                 if (bearer != null) setRequestProperty("Authorization", "Bearer $bearer")
                 if (body != null) {
@@ -153,28 +155,38 @@ class MdmApi(val session: Session) {
         }
     }
 
-    fun restaurants(): List<Restaurant> {
-        val a = get("/api/v1/app/restaurants").optJSONArray("restaurants") ?: return emptyList()
-        return (0 until a.length()).map { a.getJSONObject(it).let { r -> Restaurant(r.getString("id"), r.optString("name"), r.optString("address")) } }
-    }
 
     fun agentInfo(): AgentInfo? = runCatching {
         val o = get("/api/v1/app/agent")
         AgentInfo(o.optString("version"), o.optLong("version_code"))
     }.getOrNull()?.takeIf { it.versionCode > 0 }
 
-    /** The fleet adb key (AIO firmware trusts it): null when the server has none, or is too old. */
-    fun fleetKey(): FleetKey? = try {
+    /**
+     * The fleet adb keys (AIO firmware trusts them), default first: empty when the server has none.
+     * A server from before per-vendor keys sends only the top-level default, so that is the fallback.
+     */
+    fun fleetKeys(): List<FleetKey> = try {
         val o = get("/api/v1/app/adb-key")
-        FleetKey(o.optInt("version"), o.optString("fingerprint"), o.getString("private_key_pem"))
+        val a = o.optJSONArray("keys")
+        if (a != null && a.length() > 0) {
+            (0 until a.length()).map { a.getJSONObject(it) }.map {
+                FleetKey(it.optString("label", "default"), it.optInt("version"), it.optString("fingerprint"), it.getString("private_key_pem"))
+            }
+        } else {
+            listOf(FleetKey("default", o.optInt("version"), o.optString("fingerprint"), o.getString("private_key_pem")))
+        }
     } catch (e: MdmError) {
-        if (e.unauthorized) throw e else null
+        if (e.unauthorized) throw e else emptyList()
     }
 
-    fun enrollToken(deviceClass: String, restaurantId: String): EnrollToken {
-        val body = JSONObject().put("device_class", deviceClass)
-        if (restaurantId.isNotEmpty()) body.put("restaurant_id", restaurantId)
-        val o = post("/api/v1/app/enroll-token", body)
+    /** Tells the MDM which fleet key got this phone into a device, so a leaked key can be traced. */
+    fun adbKeySeen(serial: String, label: String) = runCatching {
+        post("/api/v1/app/adb-key-seen", JSONObject().put("serial", serial).put("label", label))
+    }
+
+    /** This person's enrolment token, with no restaurant: devices land in the MDM's onboarding inbox. */
+    fun enrollToken(): EnrollToken {
+        val o = post("/api/v1/app/enroll-token", JSONObject())
         return EnrollToken(o.getString("token"), o.getString("server_url"), o.optString("restaurant"))
     }
 
