@@ -309,7 +309,12 @@ private fun Work(u: Ui, vm: EnrollVm) {
                 ok = true,
                 title = "${conn.name} is set up",
                 text = (if (out.live) "It is online on the MDM." else "It will show up on the MDM in a minute.") +
-                    " Its type and venue are set there.",
+                    " Its type and venue are set there." +
+                    when {
+                        out.closed -> " Developer options are off now, and it is restarting."
+                        out.live -> " Turn off Developer options on it: Settings → System → Developer options."
+                        else -> ""
+                    },
                 bottom = { Finish(vm) },
             ) { OpenOnMdm(u, out.serial) }
         }
@@ -360,7 +365,8 @@ private fun Work(u: Ui, vm: EnrollVm) {
 private fun phase(step: Int) = when {
     step <= 1 -> "Connecting"
     step <= 5 -> "Installing the AIO app"
-    else -> "Checking in with the MDM"
+    step <= 7 -> "Checking in with the MDM"
+    else -> "Turning off Developer options"
 }
 
 @Composable

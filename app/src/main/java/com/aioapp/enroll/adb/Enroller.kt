@@ -6,9 +6,11 @@ import java.io.File
 val STEPS = listOf(
     "Checking the device", "Getting a token", "Installing the agent", "Setting Device Owner",
     "Granting permissions", "Starting the agent", "Registering with the MDM", "First check-in",
+    "Closing up",
 )
 
-data class Outcome(val live: Boolean, val checked: Boolean, val serial: String, val restaurant: String, val batteryPct: Int, val hasBattery: Boolean, val agentVersion: String)
+/** [closed]: debugging and Developer options are off and the device is restarting. */
+data class Outcome(val live: Boolean, val checked: Boolean, val serial: String, val restaurant: String, val batteryPct: Int, val hasBattery: Boolean, val agentVersion: String, val closed: Boolean = false)
 
 /**
  * Enrols one device over its adb link: the same steps as the desktop app and tools/enroll-adb.sh.
@@ -50,7 +52,7 @@ fun enrollDevice(link: AdbLink, api: MdmApi, apkCache: File, progress: (Int) -> 
     link.shell("am start -W -n $DPC_PKG/.ui.MainActivity --es server_url '${tok.serverUrl}' --es enroll_token '${tok.token}'")
 
     progress(6)
-    var deadline = System.currentTimeMillis() + 30_000
+    val deadline = System.currentTimeMillis() + 30_000
     var registered = false
     while (System.currentTimeMillis() < deadline) {
         if (runCatching { api.statuses(listOf(serial))[serial]?.enrolled }.getOrNull() == true) { registered = true; break }
@@ -59,8 +61,21 @@ fun enrollDevice(link: AdbLink, api: MdmApi, apkCache: File, progress: (Int) -> 
     if (!registered) throw IllegalStateException("The server did not confirm within 30 s. Check the device has internet.")
 
     progress(7)
-    var out = Outcome(false, false, serial, tok.restaurant, 0, false, "")
-    deadline = System.currentTimeMillis() + 60_000
+    val out = firstCheckIn(api, serial, tok.restaurant, seenBefore)
+    if (!out.live) return out // not confirmed: leave debugging on so the setup can be run again
+
+    // Closing up (28 Oct 2026): the agent turns off wireless and USB debugging and Developer
+    // options, then restarts the device. It does it, not us: switching debugging off ends this
+    // connection, and anything still queued on it with it. It answers "closing" first. An agent
+    // from before 0.12.4 doesn't know the message, and the person is told to do it by hand.
+    progress(8)
+    val ans = runCatching { link.shell("am broadcast -n $DPC_PKG/.FinishSetupReceiver -a $DPC_PKG.FINISH_SETUP") }.getOrDefault("")
+    return out.copy(closed = ans.contains("closing"))
+}
+
+private fun firstCheckIn(api: MdmApi, serial: String, restaurant: String, seenBefore: String?): Outcome {
+    var out = Outcome(false, false, serial, restaurant, 0, false, "")
+    val deadline = System.currentTimeMillis() + 60_000
     while (true) {
         val s = runCatching { api.statuses(listOf(serial))[serial] }.getOrNull()
         if (s != null) {
