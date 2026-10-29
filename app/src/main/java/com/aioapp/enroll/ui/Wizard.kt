@@ -38,7 +38,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +62,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aioapp.enroll.adb.STEPS
+import com.aioapp.enroll.mdm.RoleOpt
 import kotlinx.coroutines.delay
 
 /**
@@ -292,6 +296,8 @@ private fun Work(u: Ui, vm: EnrollVm) {
     val probe = conn.probe
     val job = u.job?.takeIf { it.host == conn.host }
     val blocked = probe.blockedReason
+    val ask = u.roleQuestion(conn)
+    val picked = u.rolePick[conn.serial]?.let { k -> u.roleOpts[probe.product]?.firstOrNull { it.key == k } }
 
     // Re-read it every few seconds while it can't be set up, so the list ticks off as it is fixed
     // and setting up starts by itself once it is clean.
@@ -309,7 +315,7 @@ private fun Work(u: Ui, vm: EnrollVm) {
                 ok = true,
                 title = "${conn.name} is set up",
                 text = (if (out.live) "It is online on the MDM." else "It will show up on the MDM in a minute.") +
-                    " Its type and venue are set there." +
+                    (if (picked != null) " It is ${withArticle(picked.label)}; its venue is set there." else " Its type and venue are set there.") +
                     when {
                         out.closed -> " Developer options are off now, and it is restarting."
                         out.live -> " Turn off Developer options on it: Settings → System → Developer options."
@@ -357,9 +363,52 @@ private fun Work(u: Ui, vm: EnrollVm) {
                 modifier = Modifier.padding(top = 14.dp),
             )
         }
+        ask != null -> RoleAsk(conn.name, ask) { vm.pickRole(conn.serial, it) }
         else -> Page("Setting up ${conn.name}") { Looking("Starting…") }
     }
 }
+
+/**
+ * A model that can be more than one thing (the Galaxy Tab A9+ is a POS or a kitchen display,
+ * 29 Oct 2026): the person holding it says which, before anything is installed. Its app and
+ * lock on the MDM follow from this.
+ */
+@Composable
+private fun RoleAsk(name: String, opts: List<RoleOpt>, onPick: (String) -> Unit) {
+    var sel by remember(name, opts) { mutableStateOf<String?>(null) }
+    val title = if (opts.size == 2) "Is it ${withArticle(opts[0].label)} or ${withArticle(opts[1].label)}?" else "What will it be?"
+    Page(title, bottom = {
+        val chosen = opts.firstOrNull { it.key == sel }
+        BigButton(if (chosen != null) "Set it up as ${withArticle(chosen.label)}" else "Pick one", enabled = chosen != null) { chosen?.let { onPick(it.key) } }
+    }) {
+        Text(
+            "$name can be any of these. Pick what it will do at the venue: the app it runs and its lock follow from that.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 14.dp),
+        )
+        opts.forEach { o ->
+            val on = o.key == sel
+            Surface(
+                onClick = { sel = o.key },
+                shape = RoundedCornerShape(16.dp),
+                color = if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                contentColor = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                border = BorderStroke(if (on) 2.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+            ) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Icon(iconFor(o.key), null, Modifier.size(28.dp))
+                    Text(o.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    if (on) Icon(Icons.Filled.Check, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+    }
+}
+
+/** "a POS terminal", "an MPOS": the role labels as they read in a sentence. */
+private fun withArticle(label: String) = (if (label.firstOrNull()?.lowercaseChar() in setOf('a', 'e', 'i', 'o', 'u') || label.startsWith("MPOS")) "an " else "a ") + label
 
 /** The eight steps the enroller takes, as the three things a person can picture. */
 private fun phase(step: Int) = when {

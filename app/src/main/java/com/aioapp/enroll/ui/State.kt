@@ -17,6 +17,7 @@ import com.aioapp.enroll.adb.enrollDevice
 import com.aioapp.enroll.mdm.DEFAULT_SERVER
 import com.aioapp.enroll.mdm.MdmApi
 import com.aioapp.enroll.mdm.MdmError
+import com.aioapp.enroll.mdm.RoleOpt
 import com.aioapp.enroll.mdm.SerialClass
 import com.aioapp.enroll.mdm.Session
 import com.aioapp.enroll.mdm.Status
@@ -115,7 +116,16 @@ data class Ui(
     val banner: String? = null,
     val onlyOurs: Boolean = false,
     val showAll: Boolean = false, // the Wi-Fi list is cut to SHOWN_AT_FIRST until this is set
+    val roleOpts: Map<String, List<RoleOpt>> = emptyMap(), // by model (ro.product.name), once the MDM has answered
+    val rolePick: Map<String, String> = emptyMap(),        // by serial: the role the person picked
 ) {
+    /** The MDM has said which roles this device's model can take (a device with no model key asks nothing). */
+    fun rolesKnown(c: Conn) = c.probe.product.isBlank() || roleOpts.containsKey(c.probe.product)
+
+    /** The roles to choose from while this device still needs a pick: a model that can be two things (29 Oct 2026). */
+    fun roleQuestion(c: Conn): List<RoleOpt>? =
+        roleOpts[c.probe.product]?.takeIf { it.size > 1 && rolePick[c.serial] == null }
+
     private fun labelled(serial: String) = classes[serial]
     private fun named(serial: String, fallback: String) = classes[serial]?.name?.ifEmpty { null } ?: fallback
 
@@ -677,7 +687,37 @@ class EnrollVm(private val app: App) : AndroidViewModel(app) {
     fun setUp(host: String) {
         val c = _ui.value.conns[host] ?: return
         _ui.update { it.copy(step = Step.WORK, wizHost = host, job = null, tab = Tab.HOME) }
-        if (c.probe.blockedReason == null && !c.probe.owner.ours) enrol(host)
+        if (_ui.value.rolesKnown(c)) startIfReady(host) else loadRoles(c)
+    }
+
+    /** Asks the MDM which roles the device's model can take, then carries on with the set-up. */
+    private fun loadRoles(c: Conn) {
+        val a = api ?: return
+        val product = c.probe.product
+        viewModelScope.launch {
+            val opts = io(quiet = true) { a.modelRoles(product) } ?: emptyList()
+            _ui.update { it.copy(roleOpts = it.roleOpts + (product to opts)) }
+            startIfReady(c.host)
+        }
+    }
+
+    /** The person says what this device is (POS terminal, Kitchen display…); setting up goes on from there. */
+    fun pickRole(serial: String, key: String) {
+        _ui.update { it.copy(rolePick = it.rolePick + (serial to key)) }
+        _ui.value.wizHost?.let { startIfReady(it) }
+    }
+
+    /**
+     * Sets the wizard's device up once nothing stands in the way: it is clean, not ours already,
+     * and its role is known (asked first when its model can be more than one thing).
+     */
+    private fun startIfReady(host: String) {
+        val u = _ui.value
+        val c = u.conns[host] ?: return
+        if (u.step != Step.WORK || u.wizHost != host || u.job != null) return
+        if (c.probe.blockedReason != null || c.probe.owner.ours) return
+        if (!u.rolesKnown(c) || u.roleQuestion(c) != null) return
+        enrol(host)
     }
 
     fun setTab(t: Tab) = _ui.update { it.copy(tab = t) }
@@ -696,20 +736,22 @@ class EnrollVm(private val app: App) : AndroidViewModel(app) {
             _ui.update { u ->
                 if (u.conns[host] !== c) u else u.copy(conns = u.conns + (host to Conn(c.link, p.name.ifEmpty { c.name }, p)))
             }
-            val u = _ui.value
-            if (u.step == Step.WORK && u.wizHost == host && u.job == null && p.blockedReason == null && !p.owner.ours) enrol(host)
+            startIfReady(host)
         }
     }
 
     fun enrol(host: String) {
         val conn = _ui.value.conns[host] ?: return
         val a = api ?: return
+        val role = _ui.value.rolePick[conn.serial]
         if (_ui.value.job?.let { it.host == host && it.outcome == null && it.error == null } == true) return // already running
         _ui.update { it.copy(job = Job(host)) }
         viewModelScope.launch {
             val apk = File(app.cacheDir, "aio-mdm-dpc.apk")
             withContext(Dispatchers.IO) {
                 runCatching {
+                    // The pick goes first, so the MDM has it when the device enrols.
+                    if (role != null) a.deviceRole(conn.serial, conn.probe.product, role)
                     enrollDevice(conn.link, a, apk) { step ->
                         _ui.update { u -> if (u.job?.host == host) u.copy(job = u.job.copy(step = step)) else u }
                     }

@@ -59,6 +59,8 @@ data class Profile(val name: String, val adbKeyVersion: Int)
 data class AgentInfo(val version: String, val versionCode: Long)
 /** One of the adb keys AIO firmware trusts. There is one per vendor; [label] says whose ("default" is the original). */
 data class FleetKey(val label: String, val version: Int, val fingerprint: String, val privateKeyPem: String)
+/** A role a model can have (POS terminal, Kitchen display…), as the MDM names it. */
+data class RoleOpt(val key: String, val label: String)
 data class EnrollToken(val token: String, val serverUrl: String, val restaurant: String)
 
 /** The MDM's `/api/v1/app/…` endpoints (the same ones the desktop app uses). Blocking: call off the main thread. */
@@ -189,6 +191,25 @@ class MdmApi(val session: Session) {
         val o = post("/api/v1/app/enroll-token", JSONObject())
         return EnrollToken(o.getString("token"), o.getString("server_url"), o.optString("restaurant"))
     }
+
+    /**
+     * The roles a model may take. Two or more means the person says which one this device is;
+     * none or one, nothing is asked. A server from before this (404) or any failure asks nothing.
+     */
+    fun modelRoles(product: String): List<RoleOpt> {
+        if (product.isBlank()) return emptyList()
+        return try {
+            val a = get("/api/v1/app/model-roles?product=" + URLEncoder.encode(product, "UTF-8")).optJSONArray("roles") ?: return emptyList()
+            (0 until a.length()).map { a.getJSONObject(it) }.map { RoleOpt(it.optString("key"), it.optString("label").ifEmpty { it.optString("key") }) }.filter { it.key.isNotEmpty() }
+        } catch (e: MdmError) {
+            if (e.unauthorized) throw e else emptyList()
+        }
+    }
+
+    /** Tells the MDM which role the person picked; kept until the device enrols. Never fails the enrolment. */
+    fun deviceRole(serial: String, product: String, cls: String) = runCatching {
+        post("/api/v1/app/device-role", JSONObject().put("serial", serial).put("product", product).put("class", cls))
+    }.onFailure { android.util.Log.w("AioMdm", "device-role: $it") }
 
     /** The agent APK, via a temp file so a half download is never used. */
     fun downloadApk(dest: File) {

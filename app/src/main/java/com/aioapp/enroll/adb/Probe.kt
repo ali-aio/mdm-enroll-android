@@ -12,6 +12,7 @@ data class Probe(
     val manufacturer: String = "",
     val model: String = "",
     val android: String = "",
+    val product: String = "", // ro.product.name: the model key the agent reports (Build.PRODUCT)
     val owner: Owner = Owner(),
     val accounts: List<String> = emptyList(),
     val users: Int = 1,
@@ -43,7 +44,7 @@ data class Probe(
             val out = l.shell(
                 listOf(
                     "echo $MARK:prop", "getprop ro.serialno", "getprop ro.product.manufacturer",
-                    "getprop ro.product.model", "getprop ro.build.version.release",
+                    "getprop ro.product.model", "getprop ro.build.version.release", "getprop ro.product.name",
                     "echo $MARK:owner", "dumpsys device_policy",
                     "echo $MARK:acct", "dumpsys account",
                     "echo $MARK:users", "pm list users",
@@ -60,6 +61,7 @@ data class Probe(
                 manufacturer = props.getOrElse(1) { "" },
                 model = props.getOrElse(2) { "" },
                 android = props.getOrElse(3) { "" },
+                product = props.getOrElse(4) { "" },
                 owner = parseOwner(part["owner"].orEmpty()),
                 accounts = parseAccounts(part["acct"].orEmpty()),
                 users = part["users"].orEmpty().lines().count { it.trim().startsWith("UserInfo{") }.coerceAtLeast(1),

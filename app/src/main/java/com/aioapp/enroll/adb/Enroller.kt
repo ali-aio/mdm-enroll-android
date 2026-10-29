@@ -14,8 +14,8 @@ data class Outcome(val live: Boolean, val checked: Boolean, val serial: String, 
 
 /**
  * Enrols one device over its adb link: the same steps as the desktop app and tools/enroll-adb.sh.
- * What it is and where it goes are decided on the MDM (its type follows its model; it lands in the
- * onboarding inbox), so nothing is asked here.
+ * Where it goes is decided on the MDM (it lands in the onboarding inbox). Its type follows its
+ * model, except for a model that can be two things: the wizard asks, and sends the pick first.
  * [progress] is called as each step in [STEPS] starts. Throws with a message for the person.
  */
 fun enrollDevice(link: AdbLink, api: MdmApi, apkCache: File, progress: (Int) -> Unit): Outcome {
