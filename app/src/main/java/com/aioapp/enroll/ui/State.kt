@@ -343,6 +343,7 @@ class EnrollVm(private val app: App) : AndroidViewModel(app) {
     private fun autoConnect(list: List<Svc>) {
         val keys = app.fleetIdentities.size
         if (keys == 0) { android.util.Log.i(TAG, "auto: no fleet key"); return }
+        pruneDead()
         val now = System.currentTimeMillis()
         val hosts = list.map { it.host }.distinct()
             .filter { it !in _ui.value.conns.keys && it !in trying && now - (refused[it] ?: 0) > RETRY_MS }
@@ -789,9 +790,25 @@ class EnrollVm(private val app: App) : AndroidViewModel(app) {
         val again = withContext(Dispatchers.IO) { runCatching { c.link.closeQuietly(); c.link.open() }.getOrDefault(false) }
         if (again) return c
         val fresh = connectKnown(c.host) ?: return null
-        val nc = Conn(fresh, c.name, c.probe, c.ready)
+        // The address may belong to another device by now: read it again.
+        val p = withContext(Dispatchers.IO) { runCatching { Probe.read(fresh) }.getOrNull() } ?: run { fresh.closeQuietly(); return null }
+        val nc = Conn(fresh, p.name.ifEmpty { c.name }, p, c.ready)
         _ui.update { u -> u.copy(conns = u.conns + (c.host to nc)) }
         return nc
+    }
+
+    /**
+     * Connections whose device has gone (closed up and restarted, switched off, left the Wi-Fi)
+     * leave the list, so the address is found again fresh. They used to stay until the app was
+     * restarted, and a later setup on that address hit the dead link: the "connect() must be
+     * called first" that the enrolling team saw after 2-3 devices (30 Oct 2026).
+     */
+    private fun pruneDead() {
+        val keep = _ui.value.wizHost // the wizard's device stays (its result or Try again needs it)
+        val dead = _ui.value.conns.filter { (h, c) -> h != keep && !c.link.isConnected }
+        if (dead.isEmpty()) return
+        dead.values.forEach { it.link.closeQuietly() }
+        _ui.update { u -> u.copy(conns = u.conns - dead.keys) }
     }
 
     /** What went wrong, as what to do about it. The raw adb text is for nobody here. */
