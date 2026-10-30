@@ -741,13 +741,20 @@ class EnrollVm(private val app: App) : AndroidViewModel(app) {
     }
 
     fun enrol(host: String) {
-        val conn = _ui.value.conns[host] ?: return
+        val first = _ui.value.conns[host] ?: return
         val a = api ?: return
-        val role = _ui.value.rolePick[conn.serial]
+        val role = _ui.value.rolePick[first.serial]
         if (_ui.value.job?.let { it.host == host && it.outcome == null && it.error == null } == true) return // already running
         _ui.update { it.copy(job = Job(host)) }
         viewModelScope.launch {
             val apk = File(app.cacheDir, "aio-mdm-dpc.apk")
+            // The Wi-Fi debugging connection can drop between screens (the device slept, Wi-Fi
+            // blipped). Try again must not reuse a dead one: 0.4.0 showed libadb's
+            // "connect() must be called first" (30 Oct 2026). Reconnect first.
+            val conn = live(first) ?: run {
+                _ui.update { u -> if (u.job?.host == host) u.copy(job = u.job.copy(error = LOST)) else u }
+                return@launch
+            }
             withContext(Dispatchers.IO) {
                 runCatching {
                     // The pick goes first, so the MDM has it when the device enrols.
@@ -772,12 +779,28 @@ class EnrollVm(private val app: App) : AndroidViewModel(app) {
 
     fun clearJob() = _ui.update { it.copy(job = null) }
 
+    /**
+     * [c] with a working adb connection: as it is, or reconnected on the same link, or on a new
+     * one (the device may have re-announced Wireless debugging on another port). Null when the
+     * device can't be reached at all.
+     */
+    private suspend fun live(c: Conn): Conn? {
+        if (c.link.isConnected) return c
+        val again = withContext(Dispatchers.IO) { runCatching { c.link.closeQuietly(); c.link.open() }.getOrDefault(false) }
+        if (again) return c
+        val fresh = connectKnown(c.host) ?: return null
+        val nc = Conn(fresh, c.name, c.probe, c.ready)
+        _ui.update { u -> u.copy(conns = u.conns + (c.host to nc)) }
+        return nc
+    }
+
     /** What went wrong, as what to do about it. The raw adb text is for nobody here. */
     private fun human(e: Throwable): String {
         val m = e.message.orEmpty()
         return when {
             e is MdmError -> m.ifEmpty { "The MDM refused that." }
             e is IOException -> "The device stopped answering. It may have gone to sleep: wake it and try again."
+            m.contains("must be called first", true) || m.contains("not connected", true) -> LOST
             m.contains("accounts", true) -> "It has an account on it. Factory reset it, skip the Google account, and start again."
             m.contains("users", true) -> "It has a second user or a work profile. Factory reset it and start again."
             m.contains("already set", true) || m.contains("device owner", true) && m.contains("already", true) ->
@@ -804,6 +827,8 @@ class EnrollVm(private val app: App) : AndroidViewModel(app) {
     }
 
     companion object {
+        /** The adb connection to the device is gone and could not be made again. */
+        const val LOST = "Lost the connection to the device. Wake it, check it is on the same Wi-Fi with Wireless debugging still on, then tap Try again."
         fun factory(app: Application) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T = EnrollVm(app as App) as T
