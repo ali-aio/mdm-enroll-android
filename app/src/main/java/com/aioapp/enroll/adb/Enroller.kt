@@ -1,6 +1,7 @@
 package com.aioapp.enroll.adb
 
 import com.aioapp.enroll.mdm.MdmApi
+import com.aioapp.enroll.mdm.Where
 import java.io.File
 
 val STEPS = listOf(
@@ -14,17 +15,17 @@ data class Outcome(val live: Boolean, val checked: Boolean, val serial: String, 
 
 /**
  * Enrols one device over its adb link: the same steps as the desktop app and tools/enroll-adb.sh.
- * Where it goes is decided on the MDM (it lands in the onboarding inbox). Its type follows its
- * model, except for a model that can be two things: the wizard asks, and sends the pick first.
- * [progress] is called as each step in [STEPS] starts. Throws with a message for the person.
+ * Where it goes is the person's answer ([where]: a venue, the MDM's queue or the Lab). Its type
+ * follows its model, except for a model that can be two things: the wizard asks, and sends the
+ * pick first. [progress] is called as each step in [STEPS] starts. Throws with a message for the person.
  */
-fun enrollDevice(link: AdbLink, api: MdmApi, apkCache: File, progress: (Int) -> Unit): Outcome {
+fun enrollDevice(link: AdbLink, api: MdmApi, apkCache: File, where: Where, progress: (Int) -> Unit): Outcome {
     progress(0)
     val probe = Probe.read(link)
     probe.blockedReason?.let { throw IllegalStateException("Can’t be enrolled: $it.") }
 
     progress(1)
-    val tok = api.enrollToken()
+    val tok = api.enrollToken(where)
 
     progress(2)
     apkCache.delete() // never install a stale copy from an earlier version

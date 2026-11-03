@@ -62,6 +62,19 @@ data class FleetKey(val label: String, val version: Int, val fingerprint: String
 /** A role a model can have (POS terminal, Kitchen display…), as the MDM names it. */
 data class RoleOpt(val key: String, val label: String)
 data class EnrollToken(val token: String, val serverUrl: String, val restaurant: String)
+/** A venue a device can be put at, as the MDM lists them for this person. */
+data class Venue(val id: String, val name: String, val address: String)
+
+/**
+ * Where a device is going (3 Nov 2026): a venue, "Not decided yet" (the MDM's queue, an Ops lead
+ * places it) or the Lab (a bench or test device). [kind] is "venue", "queue" or "lab".
+ */
+data class Where(val kind: String, val venue: Venue? = null) {
+    companion object {
+        val QUEUE = Where("queue")
+        val LAB = Where("lab")
+    }
+}
 
 /** The MDM's `/api/v1/app/…` endpoints (the same ones the desktop app uses). Blocking: call off the main thread. */
 class MdmApi(val session: Session) {
@@ -186,10 +199,29 @@ class MdmApi(val session: Session) {
         post("/api/v1/app/adb-key-seen", JSONObject().put("serial", serial).put("label", label))
     }
 
-    /** This person's enrolment token, with no restaurant: devices land in the MDM's onboarding inbox. */
-    fun enrollToken(): EnrollToken {
-        val o = post("/api/v1/app/enroll-token", JSONObject())
+    /**
+     * This person's enrolment token for [where]: a venue's token places the device there; with no
+     * venue it goes to the MDM's queue or the Lab. A server from before "placement" ignores it and
+     * decides by the person's role.
+     */
+    fun enrollToken(where: Where): EnrollToken {
+        val body = JSONObject()
+        when (where.kind) {
+            "venue" -> body.put("restaurant_id", where.venue?.id ?: "")
+            else -> body.put("placement", where.kind)
+        }
+        val o = post("/api/v1/app/enroll-token", body)
         return EnrollToken(o.getString("token"), o.getString("server_url"), o.optString("restaurant"))
+    }
+
+    /** The venues this person may put a device at, by name. Empty on any failure (the other two answers still work). */
+    fun venues(): List<Venue> = try {
+        val a = get("/api/v1/app/restaurants").optJSONArray("restaurants")
+        if (a == null) emptyList() else (0 until a.length()).map { a.getJSONObject(it) }
+            .map { Venue(it.optString("id"), it.optString("name"), it.optString("address")) }
+            .filter { it.id.isNotEmpty() }.sortedBy { it.name.lowercase() }
+    } catch (e: MdmError) {
+        if (e.unauthorized) throw e else emptyList()
     }
 
     /**

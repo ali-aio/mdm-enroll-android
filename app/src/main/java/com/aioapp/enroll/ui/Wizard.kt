@@ -63,6 +63,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aioapp.enroll.adb.STEPS
 import com.aioapp.enroll.mdm.RoleOpt
+import com.aioapp.enroll.mdm.Venue
+import com.aioapp.enroll.mdm.Where
 import kotlinx.coroutines.delay
 
 /**
@@ -315,7 +317,12 @@ private fun Work(u: Ui, vm: EnrollVm) {
                 ok = true,
                 title = "${conn.name} is set up",
                 text = (if (out.live) "It is online on the MDM." else "It will show up on the MDM in a minute.") +
-                    (if (picked != null) " It is ${withArticle(picked.label)}; its venue is set there." else " Its type and venue are set there.") +
+                    (if (picked != null) " It is ${withArticle(picked.label)}." else "") +
+                    when (u.wherePick[conn.serial]?.kind) {
+                        "venue" -> " It is at ${out.restaurant.ifEmpty { u.wherePick[conn.serial]?.venue?.name ?: "its venue" }}, setting up."
+                        "lab" -> " It is in the Lab."
+                        else -> " It waits on the MDM for someone to put it at a venue."
+                    } +
                     when {
                         out.closed -> " Developer options are off now, and it is restarting."
                         out.live -> " Turn off Developer options on it: Settings → System → Developer options."
@@ -364,6 +371,7 @@ private fun Work(u: Ui, vm: EnrollVm) {
             )
         }
         ask != null -> RoleAsk(conn.name, ask) { vm.pickRole(conn.serial, it) }
+        u.whereQuestion(conn) -> WhereAsk(conn.name, u.venues, u.lastWhere, u.session?.role != "engineer") { vm.pickWhere(conn.serial, it) }
         else -> Page("Setting up ${conn.name}") { Looking("Starting…") }
     }
 }
@@ -403,6 +411,72 @@ private fun RoleAsk(name: String, opts: List<RoleOpt>, onPick: (String) -> Unit)
                     if (on) Icon(Icons.Filled.Check, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
                 }
             }
+        }
+    }
+}
+
+/**
+ * Where the device is going (3 Nov 2026): a venue, "Not decided yet" (the MDM's queue: an Ops
+ * lead puts it at a venue) or the Lab (a bench or test device). Asked for every device, with the
+ * last answer already picked so a batch for one venue is one tap each. Engineers enrol for the
+ * Lab or the queue only: the MDM refuses them a venue.
+ */
+@Composable
+private fun WhereAsk(name: String, venues: List<Venue>?, last: Where?, venuesAllowed: Boolean, onPick: (Where) -> Unit) {
+    var sel by remember(name) { mutableStateOf(last?.takeIf { venuesAllowed || it.kind != "venue" }) }
+    var q by remember(name) { mutableStateOf("") }
+    Page("Where is it going?", bottom = {
+        val label = when (sel?.kind) {
+            "venue" -> "Set it up for ${sel?.venue?.name}"
+            "queue" -> "Set it up · venue later"
+            "lab" -> "Set it up for the Lab"
+            else -> "Pick one"
+        }
+        BigButton(label, enabled = sel != null) { sel?.let(onPick) }
+    }) {
+        Text(
+            "Pick the venue if you know it. Otherwise it waits on the MDM until someone puts it at one.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 14.dp),
+        )
+        WhereOpt("Not decided yet", "Ops puts it at a venue from the MDM", sel?.kind == "queue") { sel = Where.QUEUE }
+        WhereOpt("Lab", "A bench or test device, not for a restaurant", sel?.kind == "lab") { sel = Where.LAB }
+        if (venuesAllowed) {
+            Text("Venue", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp, bottom = 8.dp))
+            when {
+                venues == null -> Looking("Loading venues…")
+                venues.isEmpty() -> Text("No venues you can use.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> {
+                    OutlinedTextField(q, { q = it }, Modifier.fillMaxWidth().padding(bottom = 10.dp), singleLine = true, placeholder = { Text("Search venues") })
+                    val shown = venues.filter { q.isBlank() || it.name.contains(q.trim(), ignoreCase = true) || it.address.contains(q.trim(), ignoreCase = true) }
+                    // The picked venue stays on screen whatever the search says.
+                    val picked = sel?.venue?.takeIf { sel?.kind == "venue" }
+                    val list = (listOfNotNull(picked) + shown.filter { it.id != picked?.id }).take(12)
+                    list.forEach { v -> WhereOpt(v.name, v.address, sel?.kind == "venue" && sel?.venue?.id == v.id) { sel = Where("venue", v) } }
+                    if (shown.size > 12) Text("${shown.size - 12} more: search to narrow", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WhereOpt(title: String, sub: String, on: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        contentColor = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(if (on) 2.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+    ) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (on) Icon(Icons.Filled.Check, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
         }
     }
 }
