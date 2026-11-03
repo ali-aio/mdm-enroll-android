@@ -25,6 +25,9 @@ data class Probe(
         if (model.startsWith(manufacturer, ignoreCase = true)) model else n
     }
 
+    /** One of our agents is on it: the Device-Owner agent as owner, or the client built into AIO firmware. */
+    val hasAgent get() = owner.ours || firmwareVersion != null
+
     /** Why our agent can't become Device Owner, or null. Accounts only matter before it is ours. */
     val blockedReason: String?
         get() = when {

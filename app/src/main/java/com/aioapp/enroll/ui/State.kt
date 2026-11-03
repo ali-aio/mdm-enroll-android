@@ -163,7 +163,9 @@ data class Ui(
             .distinctBy { it.key }
 
     /** Already in the MDM: our agent owns it, or the MDM says the serial is one of its own. */
-    private fun done(c: Conn) = c.probe.owner.ours || classes[c.serial]?.kind == "fleet"
+    // A serial the MDM knows is done only while an agent is still on the device: one factory reset
+    // takes the Device-Owner agent off and leaves the MDM's record, and that device needs setting up again.
+    private fun done(c: Conn) = c.probe.owner.ours || (classes[c.serial]?.kind == "fleet" && c.probe.hasAgent)
 
     /** Connected on their own and not enrolled yet: one tap away. */
     val ready: List<Dev>

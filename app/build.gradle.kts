@@ -12,8 +12,8 @@ android {
         applicationId = "com.aioapp.enroll"
         minSdk = 30 // Wireless debugging (pairing codes) is Android 11+
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.5.0"
+        versionCode = 8
+        versionName = "0.5.1"
     }
 
     // Two builds: live and stage. Different applicationIds, so both can sit on one phone.
