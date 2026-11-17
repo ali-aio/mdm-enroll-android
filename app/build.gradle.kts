@@ -16,12 +16,21 @@ android {
         versionName = "0.5.1"
     }
 
-    // Two builds: live and stage. Different applicationIds, so both can sit on one phone.
+    // Three builds: live (mdm.dev), stage and prod. Different applicationIds, so they can sit
+    // on one phone side by side. prod (17 Nov 2026) talks to mdm.aioapp.com, where devices are
+    // moving; Lab devices stay on mdm.dev, so a phone may need both for now.
     flavorDimensions += "server"
     productFlavors {
         create("live") {
             dimension = "server"
             buildConfigField("String", "SERVER", "\"https://mdm.dev.aioapp.com\"")
+        }
+        create("prod") {
+            dimension = "server"
+            applicationIdSuffix = ".prod"
+            versionNameSuffix = "-prod"
+            resValue("string", "app_name", "AIO Enroll (prod)")
+            buildConfigField("String", "SERVER", "\"https://mdm.aioapp.com\"")
         }
         create("stage") {
             dimension = "server"
